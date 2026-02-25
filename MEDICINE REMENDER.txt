@@ -1,0 +1,175 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
+
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initializationSettings =
+      InitializationSettings(android: initializationSettingsAndroid);
+
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+  runApp(const MyApp());
+}
+
+class Medicine {
+  String name;
+  TimeOfDay time;
+  String note;
+
+  Medicine({required this.name, required this.time, required this.note});
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Medicine Reminder',
+      theme: ThemeData(primarySwatch: Colors.teal),
+      home: const HomePage(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final List<Medicine> _medicines = [];
+
+  Future<void> _scheduleNotification(Medicine med) async {
+    final now = DateTime.now();
+    final scheduledDate = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      med.time.hour,
+      med.time.minute,
+    );
+
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      0,
+      'Medicine Reminder',
+      'Time to take: ${med.name}\n${med.note}',
+      tz.TZDateTime.from(
+        scheduledDate.isBefore(now)
+            ? scheduledDate.add(const Duration(days: 1))
+            : scheduledDate,
+        tz.local,
+      ),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'med_channel',
+          'Medicine Reminder',
+          channelDescription: 'Reminds you to take medicine',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+      ),
+      androidAllowWhileIdle: true,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  void _addMedicine() async {
+    final nameController = TextEditingController();
+    final noteController = TextEditingController();
+    TimeOfDay? pickedTime;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Medicine"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: "Medicine Name"),
+            ),
+            TextField(
+              controller: noteController,
+              decoration: const InputDecoration(labelText: "Note (optional)"),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: () async {
+                pickedTime = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay.now(),
+                );
+              },
+              child: const Text("Pick Time"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty && pickedTime != null) {
+                final med = Medicine(
+                  name: nameController.text,
+                  time: pickedTime!,
+                  note: noteController.text,
+                );
+                setState(() => _medicines.add(med));
+                _scheduleNotification(med);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Medicine Reminder App")),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addMedicine,
+        child: const Icon(Icons.add),
+      ),
+      body: _medicines.isEmpty
+          ? const Center(child: Text("No medicines added"))
+          : ListView.builder(
+              itemCount: _medicines.length,
+              itemBuilder: (context, index) {
+                final med = _medicines[index];
+                return ListTile(
+                  leading: const Icon(Icons.medical_services),
+                  title: Text(med.name),
+                  subtitle: Text(
+                      "Time: ${med.time.format(context)}\nNote: ${med.note}"),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      setState(() => _medicines.removeAt(index));
+                    },
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
